@@ -15,7 +15,9 @@ enum Action {
     Tokens,
 }
 
-use lua_int::{tokenizing::tokenize, Prog};
+use lua_int::{
+    error::LuaErrorType, prog::LuaScope, tokenizing::tokenize, value::Value, LuaError, Prog,
+};
 
 fn main() {
     let args = Cli::parse();
@@ -29,6 +31,19 @@ fn main() {
         return;
     }
     let mut p = Prog::from(t);
+    let clos = |args: Vec<Value>, _: &mut LuaScope| -> Result<Value, LuaError> {
+        if args.len() != 1 {
+            return Err(LuaError::new_without_span(LuaErrorType::WrongArgumentCount));
+        };
+        println!(
+            "{}",
+            args[0]
+                .string()
+                .ok_or(Into::<LuaError>::into(LuaErrorType::ExpectedValue))?
+        );
+        Ok(Value::Nil)
+    };
+    p.register_function("print".to_owned(), clos);
     p.run().expect("failed to run");
     println!("{:#?}", p);
 }

@@ -1,6 +1,6 @@
 use std::{iter::Peekable, ops::Add};
 
-use crate::{prog::Value, LuaError};
+use crate::{error::LuaErrorType, value::Value, LuaError};
 
 #[derive(Clone, Debug)]
 pub struct Token {
@@ -10,7 +10,7 @@ pub struct Token {
 
 impl Token {
     pub fn into_malformed(self) -> LuaError {
-        LuaError::MalFormed(self.span)
+        LuaError::new_with_span(LuaErrorType::MalFormed, self.span)
     }
 }
 
@@ -33,8 +33,8 @@ impl Add<&Span> for Span {
 }
 
 impl Span {
-    pub fn into_malformed(&self) -> LuaError {
-        LuaError::MalFormed(self.clone())
+    pub fn to_malformed(&self) -> LuaError {
+        LuaError::new_with_span(LuaErrorType::MalFormed, self.clone())
     }
 }
 
@@ -100,7 +100,7 @@ pub enum Operator {
     Or,
     Power,
     Not,
-    Div,
+    Slash,
     Con,
 }
 
@@ -238,6 +238,10 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                 tokentype: TokenType::Operator(Operator::Star),
                 span: c.into(),
             },
+            '/' => Token {
+                tokentype: TokenType::Operator(Operator::Slash),
+                span: c.into(),
+            },
             '\n' => Token {
                 tokentype: TokenType::LineBreak,
                 span: c.into(),
@@ -260,6 +264,10 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                     span: Span::from_positioned_chars(c, endchar),
                 }
             }
+            '^' => Token {
+                tokentype: TokenType::Operator(Operator::Power),
+                span: c.into(),
+            },
             v @ ('0'..='9' | '.') => {
                 let mut value = 0f64;
                 let mut endchar = c.clone();
@@ -346,6 +354,9 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                         "local" => TokenType::Local,
                         "return" => TokenType::Return,
                         "for" => TokenType::For,
+                        "or" => TokenType::Operator(Operator::Or),
+                        "and" => TokenType::Operator(Operator::And),
+                        "not" => TokenType::Operator(Operator::Not),
                         _ => TokenType::Ident(data),
                     },
                     span: Span::from_positioned_chars(c, endchar),

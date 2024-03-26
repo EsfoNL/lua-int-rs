@@ -1,15 +1,15 @@
-use clap::error::Result;
-
 use crate::{
     expr::Expr,
+    luafn::LuaFn,
     statement::Statement,
     tokenizing::{BraceType, Operator, Span, Token, TokenType},
-    LuaError,
+    value::Value,
+    LuaError, Result,
 };
 use std::{collections::HashMap, iter::Peekable};
 use std::{fmt::Debug, sync::Arc};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct LuaScope(pub HashMap<String, Value>);
 
 impl LuaScope {
@@ -18,58 +18,26 @@ impl LuaScope {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum LuaFn {
-    External(fn(Vec<Value>) -> Result<Value, LuaError>),
-    Internal(Arc<LuaFnDef>),
+pub struct LuaScopePair<'local, 'global> {
+    pub local: &'local mut LuaScope,
+    pub global: &'global mut LuaScope,
 }
 
-impl LuaFn {
-    fn call(&self, input: Vec<Value>, global_scope: &mut LuaScope) -> Result<Value, LuaError> {
-        match self {
-            LuaFn::External(f) => f(input),
-            LuaFn::Internal(v) => {
-                let mut local_scope = LuaScope::new();
-                for (index, name) in v.names.iter().enumerate() {
-                    if let Some(v) = input.get(index) {
-                        local_scope.0.insert(name.clone(), v.clone());
-                    } else {
-                        local_scope.0.insert(name.clone(), Value::Nil);
-                    }
-                }
-                for i in v.body.iter() {
-                    if let Some(v) = i.execute(global_scope, &mut local_scope)? {
-                        return Ok(v);
-                    }
-                }
-                Ok(Value::Nil)
-            }
+impl<'local, 'global> LuaScopePair<'local, 'global> {
+    pub fn with_new_local(&'global mut self, local: &'local mut LuaScope) -> Self {
+        Self {
+            local,
+            global: self.global,
         }
     }
-}
 
-impl PartialEq for LuaFn {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (LuaFn::External(a), LuaFn::External(b)) => a == b,
-            (LuaFn::Internal(a), LuaFn::Internal(b)) => Arc::ptr_eq(a, b),
-            _ => false,
-        }
+    pub fn get(&self, key: &str) -> &Value {
+        self.local
+            .0
+            .get(key)
+            .or_else(|| self.global.0.get(key))
+            .unwrap_or(&Value::Nil)
     }
-}
-
-#[derive(Debug)]
-pub struct LuaFnDef {
-    names: Vec<String>,
-    body: Vec<Statement>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value {
-    Function(LuaFn),
-    Num(f64),
-    String(String),
-    Nil,
 }
 
 #[derive(Debug)]
@@ -102,23 +70,26 @@ where
         }
     }
 
-    pub fn register_function(
-        &mut self,
-        name: String,
-        f: fn(Vec<Value>) -> Result<Value, LuaError>,
-    ) {
+    pub fn register_function<F>(&mut self, name: String, f: F)
+    where
+        F: LuaFn + 'static,
+    {
         self.global_scope
             .0
-            .insert(name, Value::Function(LuaFn::External(f)));
+            .insert(name, Value::Function(Arc::new(f)));
     }
 
-    pub fn run(&mut self) -> Result<(), LuaError> {
+    pub fn run(&mut self) -> Result<()> {
+        let mut scope_pair = LuaScopePair {
+            global: &mut self.global_scope,
+            local: &mut self.local_global_scope,
+        };
         loop {
             if self.source.peek().is_none() {
                 break Ok(());
             }
             let statement = Statement::parse(&mut self.source)?;
-            statement.execute(&mut self.global_scope, &mut self.local_global_scope)?;
+            statement.execute(&mut scope_pair)?;
         }
     }
 }
