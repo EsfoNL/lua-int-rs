@@ -1,2 +1,4 @@
 /target
 *.lua
+perf*
+flamegraph.svg

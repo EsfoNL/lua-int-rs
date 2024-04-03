@@ -17,8 +17,8 @@ impl Debug for dyn LuaFn {
 
 #[derive(Debug)]
 pub struct LuaCodeFn {
-    names: Vec<String>,
-    body: Vec<Statement>,
+    pub names: Vec<String>,
+    pub body: Vec<Statement>,
 }
 
 impl LuaFn for LuaCodeFn {
@@ -46,7 +46,7 @@ impl LuaFn for LuaCodeFn {
 
 impl<T> LuaFn for T
 where
-    T: Fn(Vec<Value>, &mut LuaScope) -> Result<Value>,
+    T: Fn(Vec<Value>, &mut LuaScope) -> Result<Value> + Send,
 {
     fn call(&self, args: Vec<Value>, global_scope: &mut LuaScope) -> Result<Value> {
         self(args, global_scope)
@@ -59,7 +59,7 @@ where
 
 impl<T> LuaFn for Mutex<T>
 where
-    T: FnMut(Vec<Value>, &mut LuaScope) -> Result<Value>,
+    T: FnMut(Vec<Value>, &mut LuaScope) -> Result<Value> + Send,
 {
     fn call(&self, args: Vec<Value>, global_scope: &mut LuaScope) -> Result<Value> {
         self.lock().unwrap()(args, global_scope)

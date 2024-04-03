@@ -1,10 +1,11 @@
+use tracing::debug;
+
 use crate::{
-    expr::Expr,
     luafn::LuaFn,
     statement::Statement,
-    tokenizing::{BraceType, Operator, Span, Token, TokenType},
+    tokenizing::{Token, TokenType},
     value::Value,
-    LuaError, Result,
+    Result,
 };
 use std::{collections::HashMap, iter::Peekable};
 use std::{fmt::Debug, sync::Arc};
@@ -18,6 +19,7 @@ impl LuaScope {
     }
 }
 
+#[derive(Debug)]
 pub struct LuaScopePair<'local, 'global> {
     pub local: &'local mut LuaScope,
     pub global: &'global mut LuaScope,
@@ -50,7 +52,7 @@ pub struct Prog<T: Iterator<Item = Token> + Debug> {
 impl<T: Iterator<Item = Token> + Debug> Drop for Prog<T> {
     fn drop(&mut self) {
         if std::thread::panicking() {
-            eprintln!("{:?}", self)
+            debug!("{:?}", self)
         }
     }
 }
@@ -85,9 +87,15 @@ where
             local: &mut self.local_global_scope,
         };
         loop {
-            if self.source.peek().is_none() {
+            let Some(peek) = self.source.peek() else {
                 break Ok(());
+            };
+
+            if peek.tokentype == TokenType::LineBreak {
+                self.source.next();
+                continue;
             }
+
             let statement = Statement::parse(&mut self.source)?;
             statement.execute(&mut scope_pair)?;
         }

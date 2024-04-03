@@ -1,10 +1,10 @@
 use std::backtrace::Backtrace;
 
-use crate::tokenizing::Span;
+use crate::tokenizing::{Span, Token, TokenType};
 
 #[derive(Debug)]
 pub struct LuaError {
-    pub backtrace: Backtrace,
+    pub backtrace: Box<Backtrace>,
     pub error_type: LuaErrorType,
     pub span: Option<Span>,
 }
@@ -17,14 +17,14 @@ impl LuaError {
         Self {
             span: Some(span),
             error_type,
-            backtrace: Backtrace::capture(),
+            backtrace: Box::new(Backtrace::capture()),
         }
     }
     pub fn new_without_span(error_type: LuaErrorType) -> Self {
         Self {
             span: None,
             error_type,
-            backtrace: Backtrace::capture(),
+            backtrace: Box::new(Backtrace::capture()),
         }
     }
 }
@@ -32,7 +32,7 @@ impl LuaError {
 #[derive(Debug)]
 pub enum LuaErrorType {
     Unit,
-    MalFormed,
+    MalFormed(TokenType),
     UnexpectedEOF,
     UndefinedVar(String),
     Nothing,
@@ -42,6 +42,7 @@ pub enum LuaErrorType {
     CompareDifferentTypes,
     WrongArgumentCount,
     NotAFunction,
+    SyntaxError,
 }
 
 impl From<LuaErrorType> for LuaError {

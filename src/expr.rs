@@ -1,8 +1,11 @@
 use std::iter::Peekable;
 
+use tracing::debug;
+
 use crate::{
     error::LuaErrorType,
-    prog::{LuaScope, LuaScopePair},
+    prog::LuaScopePair,
+    statement::is_token_type,
     tokenizing::{BraceType, Operator, Span, Token, TokenType},
     value::Value,
     LuaError,
@@ -41,7 +44,6 @@ impl ExprElement {
     fn eval_value(&self, scopes: &mut LuaScopePair) -> Result<Value, LuaError> {
         match self.expr_element_type {
             ExprElementType::FnCall(ref name, ref args) => {
-                println!("function call: name: {name}");
                 let fun = scopes.get(name).function().ok_or(LuaError::new_with_span(
                     LuaErrorType::NotAFunction,
                     self.span.clone(),
@@ -54,7 +56,7 @@ impl ExprElement {
             }
             ExprElementType::VarAccess(ref name, ref path) => {
                 if path.is_empty() {
-                    Ok(scopes.get(&name).clone())
+                    Ok(scopes.get(name).clone())
                 } else {
                     todo!()
                 }
@@ -186,8 +188,7 @@ impl Expr {
                         .get(index + 1)
                         .ok_or(val.to_expected_value())?
                         .eval_value(scopes)?
-                        .bool_nil_false()
-                        .unwrap_or(true);
+                        .bool();
                     reducing_array[index] = ExprElement {
                         span: val.span.clone() + &reducing_array[index + 1].span,
                         expr_element_type: ExprElementType::Value(Value::Boolean(!val_b)),
@@ -312,6 +313,61 @@ impl Expr {
             if reducing_array.len() == 1 {
                 break 'block;
             }
+            // concatanation ..
+            for i in reducing_array.iter() {
+                if i.expr_element_type == ExprElementType::Operator(Operator::Concat) {
+                    todo!("concatanation not implemented yet!");
+                }
+            }
+            // == <= >= ~= > <
+            index = 1;
+            loop {
+                let val = &reducing_array[index];
+                if let ExprElementType::Operator(
+                    ref op @ (Operator::Eq
+                    | Operator::Gr
+                    | Operator::GrEq
+                    | Operator::Sm
+                    | Operator::SmEq
+                    | Operator::NotEq),
+                ) = val.expr_element_type
+                {
+                    let val_a = reducing_array
+                        .get(index - 1)
+                        .ok_or(val.to_expected_value())?
+                        .eval_value(scopes)?;
+                    let val_b = reducing_array
+                        .get(index + 1)
+                        .ok_or(val.to_expected_value())?
+                        .eval_value(scopes)?;
+                    let res = match op {
+                        Operator::Eq => val_a.lua_eq(&val_b),
+                        Operator::Gr => val_a.lua_gr(&val_b),
+                        Operator::GrEq => val_a.lua_gr_eq(&val_b),
+                        Operator::Sm => val_a.lua_sm(&val_b),
+                        Operator::SmEq => val_a.lua_gr(&val_b),
+                        Operator::NotEq => val_a.lua_neq(&val_b),
+                        _ => unreachable!(),
+                    }?;
+
+                    reducing_array[index - 1] = ExprElement {
+                        span: reducing_array[index + 1].span.clone()
+                            + &reducing_array[index - 1].span,
+                        expr_element_type: ExprElementType::Value(Value::Boolean(res)),
+                    };
+                    reducing_array.remove(index + 1);
+                    reducing_array.remove(index);
+                } else {
+                    index += 1;
+                }
+                //[1 * 2];
+                //len == 3
+                //index = 1
+                //index +
+                if index + 1 > reducing_array.len() {
+                    break;
+                }
+            }
         }
 
         if reducing_array.len() != 1 {
@@ -329,6 +385,7 @@ impl Expr {
     {
         let mut expr_vec = Vec::new();
         loop {
+            debug!("expr_vec: {expr_vec:#?}");
             let Some(val) = source.peek() else {
                 if expr_vec.is_empty() {
                     return Err(LuaError::new_without_span(LuaErrorType::UnexpectedEOF));
@@ -340,27 +397,59 @@ impl Expr {
             match val.tokentype {
                 TokenType::Ident(_) => {
                     let val = source.next().unwrap();
-                    let TokenType::Ident(value) = val.tokentype else {
+                    let TokenType::Ident(ident_name) = val.tokentype else {
                         unreachable!()
                     };
 
                     let Some(next_val) = source.peek() else {
                         expr_vec.push(ExprElement {
                             span: val.span,
-                            expr_element_type: ExprElementType::VarAccess(value, Vec::new()),
+                            expr_element_type: ExprElementType::VarAccess(ident_name, Vec::new()),
                         });
                         continue;
                     };
                     match next_val.tokentype {
                         TokenType::LBrac(BraceType::Round) => {
-                            todo!()
+                            let _next_val = source.next().unwrap();
+                            if source
+                                .peek()
+                                .is_some_and(is_token_type(TokenType::RBrac(BraceType::Round)))
+                            {
+                                let end_val = source.next().unwrap();
+                                expr_vec.push(ExprElement::function_call(
+                                    ident_name,
+                                    vec![],
+                                    val.span + &end_val.span,
+                                ));
+                                continue;
+                            }
+                            // parse args
+                            let mut args = Vec::new();
+                            let mut span = val.span;
+                            loop {
+                                let val = Expr::parse(source)?;
+                                args.push(val);
+                                let next_token = source
+                                    .next()
+                                    .ok_or(Into::<LuaError>::into(LuaErrorType::UnexpectedEOF))?;
+                                span += &next_token.span;
+                                match next_token.tokentype {
+                                    TokenType::RBrac(BraceType::Round) => {
+                                        break;
+                                    }
+                                    TokenType::Comma => (),
+                                    _ => return Err(next_token.into_malformed()),
+                                }
+                            }
+
+                            expr_vec.push(ExprElement::function_call(ident_name, args, span))
                         }
                         TokenType::LBrac(BraceType::Square) => {
                             todo!()
                         }
                         _ => expr_vec.push(ExprElement {
                             span: val.span,
-                            expr_element_type: ExprElementType::VarAccess(value, Vec::new()),
+                            expr_element_type: ExprElementType::VarAccess(ident_name, Vec::new()),
                         }),
                     }
                 }
@@ -390,7 +479,7 @@ impl Expr {
                             val.span,
                         ));
                     };
-                    if val.tokentype != TokenType::Rbrac(BraceType::Round) {
+                    if val.tokentype != TokenType::RBrac(BraceType::Round) {
                         return Err(val.into_malformed());
                     }
                     expr_vec.push(ExprElement {
@@ -398,7 +487,7 @@ impl Expr {
                         expr_element_type: ExprElementType::Nested(inner_expr),
                     });
                 }
-                TokenType::Rbrac(_) => {
+                TokenType::RBrac(_) => {
                     break;
                 }
                 TokenType::Operator(_) => {
@@ -411,7 +500,7 @@ impl Expr {
                         expr_element_type: ExprElementType::Operator(op),
                     })
                 }
-                TokenType::LineBreak => {
+                TokenType::LineBreak | TokenType::Then => {
                     break;
                 }
                 ref e => panic!("{e:?}"), //return Err(val.clone().into_malformed()),

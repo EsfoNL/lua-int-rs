@@ -1,13 +1,12 @@
 use crate::error::LuaErrorType;
 use crate::luafn::LuaFn;
-use crate::Result;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum Value {
     Function(Arc<dyn LuaFn>),
     Num(f64),
-    String(String),
+    String(Arc<String>),
     Nil,
     Boolean(bool),
 }
@@ -32,31 +31,25 @@ impl Value {
             _ => None,
         }
     }
-    pub fn string(&self) -> Option<&String> {
+    pub fn string(&self) -> Option<Arc<String>> {
         match self {
-            Self::String(ref v) => Some(v),
+            Self::String(ref v) => Some(v.clone()),
+            Self::Num(ref v) => Some(Arc::new(v.to_string())),
             _ => None,
         }
     }
 
-    pub fn bool(&self) -> Option<bool> {
+    pub fn bool(&self) -> bool {
         match self {
-            Self::Boolean(ref v) => Some(*v),
-            _ => None,
+            Self::Boolean(ref v) => *v,
+            Self::Nil => false,
+            _ => true,
         }
     }
 
     pub fn function(&self) -> Option<Arc<dyn LuaFn>> {
         match self {
             Self::Function(v) => Some(v.clone()),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn bool_nil_false(&self) -> Option<bool> {
-        match self {
-            Self::Boolean(ref v) => Some(*v),
-            Self::Nil => Some(false),
             _ => None,
         }
     }
@@ -69,5 +62,21 @@ impl Value {
             (Value::Nil, Self::Nil) => Ok(true),
             _ => Err(LuaErrorType::CompareDifferentTypes),
         }
+    }
+
+    pub(crate) fn lua_gr(&self, val_b: &Value) -> Result<bool, LuaErrorType> {
+        todo!()
+    }
+
+    pub(crate) fn lua_gr_eq(&self, val_b: &Value) -> Result<bool, LuaErrorType> {
+        todo!()
+    }
+
+    pub(crate) fn lua_sm(&self, val_b: &Value) -> Result<bool, LuaErrorType> {
+        Ok(self.num().ok_or(LuaErrorType::NotANum)? < val_b.num().ok_or(LuaErrorType::NotANum)?)
+    }
+
+    pub(crate) fn lua_neq(&self, val_b: &Value) -> Result<bool, LuaErrorType> {
+        self.lua_eq(val_b).map(|e| !e)
     }
 }

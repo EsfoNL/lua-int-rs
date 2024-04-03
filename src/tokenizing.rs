@@ -1,4 +1,8 @@
-use std::{iter::Peekable, ops::Add};
+use std::{
+    iter::Peekable,
+    ops::{Add, AddAssign},
+    sync::Arc,
+};
 
 use crate::{error::LuaErrorType, value::Value, LuaError};
 
@@ -10,14 +14,21 @@ pub struct Token {
 
 impl Token {
     pub fn into_malformed(self) -> LuaError {
-        LuaError::new_with_span(LuaErrorType::MalFormed, self.span)
+        LuaError::new_with_span(LuaErrorType::MalFormed(self.tokentype), self.span)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
     pub chars: std::ops::RangeInclusive<u64>,
-    pub line: u64,
+    pub lines: std::ops::RangeInclusive<u64>,
+}
+
+impl AddAssign<&Span> for Span {
+    fn add_assign(&mut self, rhs: &Span) {
+        self.chars = u64::min(*self.chars.start(), *rhs.chars.start())
+            ..=u64::max(*self.chars.end(), *rhs.chars.end());
+    }
 }
 
 impl Add<&Span> for Span {
@@ -27,14 +38,15 @@ impl Add<&Span> for Span {
         Span {
             chars: u64::min(*self.chars.start(), *rhs.chars.start())
                 ..=u64::max(*self.chars.end(), *rhs.chars.end()),
-            line: self.line,
+            lines: u64::min(*self.chars.start(), *rhs.chars.start())
+                ..=u64::max(*self.chars.end(), *rhs.chars.end()),
         }
     }
 }
 
 impl Span {
     pub fn to_malformed(&self) -> LuaError {
-        LuaError::new_with_span(LuaErrorType::MalFormed, self.clone())
+        LuaError::new_with_span(LuaErrorType::SyntaxError, self.clone())
     }
 }
 
@@ -42,7 +54,7 @@ impl From<PositionedChar> for Span {
     fn from(i: PositionedChar) -> Self {
         Span {
             chars: i.char_pos..=i.char_pos,
-            line: i.line,
+            lines: i.line..=i.line,
         }
     }
 }
@@ -55,7 +67,7 @@ impl Span {
         let (start, finish) = (start.into(), finish.into());
         Self {
             chars: start.char_pos..=finish.char_pos,
-            line: start.line,
+            lines: start.line..=finish.line,
         }
     }
 }
@@ -69,15 +81,17 @@ pub enum TokenType {
     EqAssign,
     Dot,
     LBrac(BraceType),
-    Rbrac(BraceType),
+    RBrac(BraceType),
     Operator(Operator),
-    Else,
     Value(Value),
     LineBreak,
     Local,
     Return,
     For,
     Comma,
+    Then,
+    ElseIf,
+    Else,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -101,7 +115,8 @@ pub enum Operator {
     Power,
     Not,
     Slash,
-    Con,
+    Concat,
+    NotEq,
 }
 
 pub struct Tokenizer<T>
@@ -127,15 +142,11 @@ where {
     let mut line_number = 0;
     let mut char_number = 0;
     let iter = i.into_iter().map(move |c| {
-        match c {
-            '\n' => {
-                line_number += 1;
-                char_number = 0;
-            }
-            _ => {
-                char_number += 1;
-            }
+        if c == '\n' {
+            line_number += 1;
         }
+
+        char_number += 1;
         PositionedChar {
             line: line_number,
             char_pos: char_number,
@@ -174,7 +185,7 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
             },
             ')' => Token {
                 span: c.into(),
-                tokentype: TokenType::Rbrac(BraceType::Round),
+                tokentype: TokenType::RBrac(BraceType::Round),
             },
             '=' => {
                 if let Some(v) = self.iter.peek() {
@@ -260,7 +271,7 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                     }
                 };
                 Token {
-                    tokentype: TokenType::Value(Value::String(data)),
+                    tokentype: TokenType::Value(Value::String(Arc::new(data))),
                     span: Span::from_positioned_chars(c, endchar),
                 }
             }
@@ -350,6 +361,7 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                         "function" => TokenType::Fn,
                         "if" => TokenType::If,
                         "end" => TokenType::End,
+                        "elseif" => TokenType::ElseIf,
                         "else" => TokenType::Else,
                         "local" => TokenType::Local,
                         "return" => TokenType::Return,
@@ -357,6 +369,7 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                         "or" => TokenType::Operator(Operator::Or),
                         "and" => TokenType::Operator(Operator::And),
                         "not" => TokenType::Operator(Operator::Not),
+                        "then" => TokenType::Then,
                         _ => TokenType::Ident(data),
                     },
                     span: Span::from_positioned_chars(c, endchar),

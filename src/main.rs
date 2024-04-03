@@ -1,5 +1,7 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use std::{ffi::OsString, io::Read};
+use tracing::{debug, error, info, level_filters::LevelFilter, Level};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utf8_decode::Decoder;
 
 #[derive(clap::Parser)]
@@ -20,6 +22,10 @@ use lua_int::{
 };
 
 fn main() {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::filter::EnvFilter::from_default_env())
+        .init();
     let args = Cli::parse();
     let s = std::io::BufReader::new(std::fs::File::open(args.file).unwrap())
         .bytes()
@@ -27,7 +33,8 @@ fn main() {
     let d = Decoder::new(s).filter_map(Result::ok);
     let t = tokenize(d);
     if args.command == Action::Tokens {
-        println!("{:?}", t.collect::<Vec<_>>());
+        let res = t.collect::<Vec<_>>();
+        info!("{res:#?}");
         return;
     }
     let mut p = Prog::from(t);
@@ -35,15 +42,15 @@ fn main() {
         if args.len() != 1 {
             return Err(LuaError::new_without_span(LuaErrorType::WrongArgumentCount));
         };
-        println!(
-            "{}",
-            args[0]
-                .string()
-                .ok_or(Into::<LuaError>::into(LuaErrorType::ExpectedValue))?
-        );
+        println!("{:?}", args[0]);
         Ok(Value::Nil)
     };
     p.register_function("print".to_owned(), clos);
-    p.run().expect("failed to run");
-    println!("{:#?}", p);
+    match p.run() {
+        Ok(_) => info!("{:#?}", p),
+        Err(e) => error!(
+            "error_type: {:#?}, span: {:?}, backtrace: {:#?}",
+            e.error_type, e.span, e.backtrace
+        ),
+    };
 }
