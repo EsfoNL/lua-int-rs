@@ -2,3 +2,4 @@
 *.lua
 perf*
 flamegraph.svg
+index.html

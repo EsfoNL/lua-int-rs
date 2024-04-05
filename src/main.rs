@@ -18,7 +18,7 @@ enum Action {
 }
 
 use lua_int::{
-    error::LuaErrorType, prog::LuaScope, tokenizing::tokenize, value::Value, LuaError, Prog,
+    error::LuaErrorType, prog::LuaScope, tokenizing::Tokenizer, value::Value, LuaError, Prog,
 };
 
 fn main() {
@@ -31,13 +31,14 @@ fn main() {
         .bytes()
         .filter_map(Result::ok);
     let d = Decoder::new(s).filter_map(Result::ok);
-    let t = tokenize(d);
+    let t = Tokenizer::from(d);
     if args.command == Action::Tokens {
         let res = t.collect::<Vec<_>>();
-        info!("{res:#?}");
+        debug!("{res:#?}");
         return;
     }
-    let mut p = Prog::from(t);
+    let mut global_scope = LuaScope::default();
+    let mut p = Prog::new(t, &mut global_scope);
     let clos = |args: Vec<Value>, _: &mut LuaScope| -> Result<Value, LuaError> {
         if args.len() != 1 {
             return Err(LuaError::new_without_span(LuaErrorType::WrongArgumentCount));
@@ -47,7 +48,7 @@ fn main() {
     };
     p.register_function("print".to_owned(), clos);
     match p.run() {
-        Ok(_) => info!("{:#?}", p),
+        Ok(_) => (),
         Err(e) => error!(
             "error_type: {:#?}, span: {:?}, backtrace: {:#?}",
             e.error_type, e.span, e.backtrace

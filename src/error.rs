@@ -43,6 +43,7 @@ pub enum LuaErrorType {
     WrongArgumentCount,
     NotAFunction,
     SyntaxError,
+    Else(String),
 }
 
 impl From<LuaErrorType> for LuaError {

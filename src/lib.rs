@@ -9,3 +9,6 @@ pub mod prog;
 pub mod statement;
 pub mod tokenizing;
 pub mod value;
+
+pub mod wasm_bindgen;
+pub use wasm_bindgen::*;

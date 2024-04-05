@@ -500,7 +500,7 @@ impl Expr {
                         expr_element_type: ExprElementType::Operator(op),
                     })
                 }
-                TokenType::LineBreak | TokenType::Then => {
+                TokenType::LineBreak | TokenType::Then | TokenType::Comma | TokenType::End => {
                     break;
                 }
                 ref e => panic!("{e:?}"), //return Err(val.clone().into_malformed()),

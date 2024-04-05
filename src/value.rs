@@ -1,6 +1,9 @@
 use crate::error::LuaErrorType;
 use crate::luafn::LuaFn;
+use std::fmt::Display;
+use std::ops::Deref;
 use std::sync::Arc;
+use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -9,6 +12,12 @@ pub enum Value {
     String(Arc<String>),
     Nil,
     Boolean(bool),
+}
+
+impl From<JsValue> for Value {
+    fn from(value: JsValue) -> Self {
+        Value::String(value.as_string().unwrap().into())
+    }
 }
 
 impl PartialEq for Value {
@@ -78,5 +87,17 @@ impl Value {
 
     pub(crate) fn lua_neq(&self, val_b: &Value) -> Result<bool, LuaErrorType> {
         self.lua_eq(val_b).map(|e| !e)
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Function(v) => LuaFn::fmt(v.deref(), f),
+            Value::Num(v) => v.fmt(f),
+            Value::String(v) => v.fmt(f),
+            Value::Nil => f.write_str("nill"),
+            Value::Boolean(v) => v.fmt(f),
+        }
     }
 }

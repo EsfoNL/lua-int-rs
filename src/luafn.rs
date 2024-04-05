@@ -46,7 +46,7 @@ impl LuaFn for LuaCodeFn {
 
 impl<T> LuaFn for T
 where
-    T: Fn(Vec<Value>, &mut LuaScope) -> Result<Value> + Send,
+    T: Fn(Vec<Value>, &mut LuaScope) -> Result<Value>,
 {
     fn call(&self, args: Vec<Value>, global_scope: &mut LuaScope) -> Result<Value> {
         self(args, global_scope)
@@ -59,7 +59,7 @@ where
 
 impl<T> LuaFn for Mutex<T>
 where
-    T: FnMut(Vec<Value>, &mut LuaScope) -> Result<Value> + Send,
+    T: FnMut(Vec<Value>, &mut LuaScope) -> Result<Value>,
 {
     fn call(&self, args: Vec<Value>, global_scope: &mut LuaScope) -> Result<Value> {
         self.lock().unwrap()(args, global_scope)

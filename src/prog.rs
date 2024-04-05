@@ -1,9 +1,10 @@
 use tracing::debug;
+use wasm_bindgen::prelude::*;
 
 use crate::{
     luafn::LuaFn,
     statement::Statement,
-    tokenizing::{Token, TokenType},
+    tokenizing::{Token, TokenType, Tokenizer},
     value::Value,
     Result,
 };
@@ -43,13 +44,13 @@ impl<'local, 'global> LuaScopePair<'local, 'global> {
 }
 
 #[derive(Debug)]
-pub struct Prog<T: Iterator<Item = Token> + Debug> {
+pub struct Prog<'scope, T: Iterator<Item = Token> + Debug> {
     source: Peekable<T>,
-    global_scope: LuaScope,
+    global_scope: &'scope mut LuaScope,
     local_global_scope: LuaScope,
 }
 
-impl<T: Iterator<Item = Token> + Debug> Drop for Prog<T> {
+impl<T: Iterator<Item = Token> + Debug> Drop for Prog<'_, T> {
     fn drop(&mut self) {
         if std::thread::panicking() {
             debug!("{:?}", self)
@@ -57,21 +58,10 @@ impl<T: Iterator<Item = Token> + Debug> Drop for Prog<T> {
     }
 }
 
-impl<T> Prog<T>
+impl<'scope, T> Prog<'scope, T>
 where
     T: Iterator<Item = Token> + Debug,
 {
-    pub fn from(iter: T) -> Self
-    where
-        T: Iterator<Item = Token>,
-    {
-        Self {
-            source: iter.peekable(),
-            global_scope: LuaScope::new(),
-            local_global_scope: LuaScope::new(),
-        }
-    }
-
     pub fn register_function<F>(&mut self, name: String, f: F)
     where
         F: LuaFn + 'static,
@@ -79,6 +69,13 @@ where
         self.global_scope
             .0
             .insert(name, Value::Function(Arc::new(f)));
+    }
+    pub fn register_arc_function(&mut self, name: String, f: Arc<dyn LuaFn>) {
+        self.global_scope.0.insert(name, Value::Function(f));
+    }
+
+    pub fn set_global_scope(&mut self, scope: &'scope mut LuaScope) {
+        self.global_scope = scope
     }
 
     pub fn run(&mut self) -> Result<()> {
@@ -98,6 +95,14 @@ where
 
             let statement = Statement::parse(&mut self.source)?;
             statement.execute(&mut scope_pair)?;
+        }
+    }
+
+    pub fn new(iter: T, scope: &'scope mut LuaScope) -> Self {
+        Self {
+            source: iter.peekable(),
+            global_scope: scope,
+            local_global_scope: LuaScope::default(),
         }
     }
 }

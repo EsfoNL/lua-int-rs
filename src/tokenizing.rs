@@ -53,7 +53,7 @@ impl Span {
 impl From<PositionedChar> for Span {
     fn from(i: PositionedChar) -> Self {
         Span {
-            chars: i.char_pos..=i.char_pos,
+            chars: i.char..=i.char,
             lines: i.line..=i.line,
         }
     }
@@ -66,7 +66,7 @@ impl Span {
     ) -> Self {
         let (start, finish) = (start.into(), finish.into());
         Self {
-            chars: start.char_pos..=finish.char_pos,
+            chars: start.char..=finish.char,
             lines: start.line..=finish.line,
         }
     }
@@ -135,34 +135,62 @@ where
     }
 }
 
-pub fn tokenize<I: IntoIterator<Item = char>>(
-    i: I,
-) -> Tokenizer<impl Iterator<Item = PositionedChar>>
-where {
-    let mut line_number = 0;
-    let mut char_number = 0;
-    let iter = i.into_iter().map(move |c| {
-        if c == '\n' {
-            line_number += 1;
-        }
+pub struct PositionedCharIterator<T>
+where
+    T: Iterator<Item = char>,
+{
+    iter: T,
+    line: u64,
+    char: u64,
+}
 
-        char_number += 1;
-        PositionedChar {
-            line: line_number,
-            char_pos: char_number,
-            c,
-        }
-    });
+impl<T: std::iter::Iterator<Item = char>> Iterator for PositionedCharIterator<T> {
+    type Item = PositionedChar;
 
-    Tokenizer {
-        iter: iter.peekable(),
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|e| {
+            let res = PositionedChar {
+                line: self.line,
+                char: self.char,
+                c: e,
+            };
+            self.char += 1;
+            if e == '\n' {
+                self.line += 1;
+            };
+            res
+        })
+    }
+}
+
+impl<T> From<T> for PositionedCharIterator<T>
+where
+    T: Iterator<Item = char>,
+{
+    fn from(value: T) -> Self {
+        Self {
+            line: 0,
+            char: 0,
+            iter: value,
+        }
+    }
+}
+
+impl<T> From<T> for Tokenizer<PositionedCharIterator<T>>
+where
+    T: Iterator<Item = char>,
+{
+    fn from(value: T) -> Self {
+        Self {
+            iter: PositionedCharIterator::from(value).peekable(),
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct PositionedChar {
     line: u64,
-    char_pos: u64,
+    char: u64,
     c: char,
 }
 
@@ -186,6 +214,10 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
             ')' => Token {
                 span: c.into(),
                 tokentype: TokenType::RBrac(BraceType::Round),
+            },
+            ',' => Token {
+                span: c.into(),
+                tokentype: TokenType::Comma,
             },
             '=' => {
                 if let Some(v) = self.iter.peek() {
@@ -348,7 +380,7 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                 loop {
                     match self.iter.peek()?.c {
                         ' ' | '\t' | '\n' | '(' | ')' | '>' | '<' | '=' | '*' | '/' | '%' | '^'
-                        | '.' | '-' | '+' | '"' => break,
+                        | '.' | '-' | '+' | '"' | ',' => break,
                         _ => {
                             let v = self.iter.next().unwrap();
                             data.push(v.c);

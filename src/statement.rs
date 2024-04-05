@@ -186,11 +186,13 @@ impl Statement {
                     != TokenType::RBrac(BraceType::Round)
                 {
                     loop {
+                        debug!("args: {args:?}");
                         let val = source.next().ok_or(LuaError::unexpected_eof())?;
                         let TokenType::Ident(arg) = val.tokentype else {
                             return Err(val.into_malformed());
                         };
                         args.push(arg);
+                        debug!("args: {args:?}");
                         let next_val = source.next().ok_or(LuaError::unexpected_eof())?;
                         match next_val.tokentype {
                             TokenType::RBrac(BraceType::Round) => {
