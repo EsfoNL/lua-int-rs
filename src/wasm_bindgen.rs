@@ -1,13 +1,8 @@
-use std::borrow::BorrowMut;
-use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
-use js_sys::JSON;
 use wasm_bindgen::prelude::*;
 
-use crate::{luafn::LuaFn, prog::LuaScope, tokenizing::Tokenizer, value::Value, Prog};
-use crate::{LuaError, Result};
+use crate::{prog::LuaScope, tokenizing::Tokenizer, value::Value, Prog};
 static mut SCOPE: Mutex<Option<LuaScope>> = Mutex::new(None);
 
 #[wasm_bindgen]
@@ -34,11 +29,11 @@ pub fn register_print(fun: &js_sys::Function) {
         lock.as_mut().unwrap()
     };
     map.0.insert(
-        String::from("print"),
-        Value::Function(Arc::new(move |e: Vec<Value>, v: &mut LuaScope| {
+        "print".into(),
+        Value::Function(Arc::new(move |e: Vec<Value>, _: &mut LuaScope| {
             let val = JsValue::from(e.get(0).unwrap_or(&Value::Nil).to_string());
             fun.call1(&JsValue::null(), &val)
-                .map(|e| Value::Nil)
+                .map(|_| Value::Nil)
                 .map_err(|e| {
                     crate::LuaError::new_without_span(crate::error::LuaErrorType::Else(format!(
                         "{e:?}"
@@ -65,7 +60,7 @@ pub fn get_scope_var(name: &str) -> Option<String> {
 pub fn get_scope_var_names() -> Vec<String> {
     let mut lock = unsafe { SCOPE.lock().unwrap() };
     if let Some(ref mut v) = *lock {
-        v.0.keys().cloned().collect()
+        v.0.keys().map(|e| e.to_string()).collect()
     } else {
         vec![]
     }

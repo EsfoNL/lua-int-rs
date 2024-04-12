@@ -1,8 +1,9 @@
 use crate::prog::LuaScopePair;
+use crate::str_interner::InternedStr;
 use crate::Result;
 use crate::{prog::LuaScope, statement::Statement, value::Value};
 use std::fmt::Debug;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub trait LuaFn {
     fn call(&self, args: Vec<Value>, global_scope: &mut LuaScope) -> Result<Value>;
@@ -17,7 +18,7 @@ impl Debug for dyn LuaFn {
 
 #[derive(Debug)]
 pub struct LuaCodeFn {
-    pub names: Vec<String>,
+    pub names: Vec<InternedStr>,
     pub body: Vec<Statement>,
 }
 
@@ -25,7 +26,7 @@ impl LuaFn for LuaCodeFn {
     fn call(&self, args: Vec<Value>, global_scope: &mut LuaScope) -> Result<Value> {
         let mut local_scope = LuaScope::default();
         for (name, value) in self.names.iter().zip(args) {
-            local_scope.0.insert(name.to_string(), value);
+            local_scope.0.insert(name.clone(), value);
         }
         let mut scope_pair = LuaScopePair {
             local: &mut local_scope,

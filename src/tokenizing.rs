@@ -1,10 +1,15 @@
 use std::{
-    iter::Peekable,
     ops::{Add, AddAssign},
     sync::Arc,
 };
 
-use crate::{error::LuaErrorType, value::Value, LuaError};
+use crate::{
+    error::LuaErrorType,
+    peekable_n::{NPeekable, PeekableN},
+    str_interner::InternedStr,
+    value::Value,
+    LuaError,
+};
 
 #[derive(Clone, Debug)]
 pub struct Token {
@@ -75,7 +80,7 @@ impl Span {
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     Fn,
-    Ident(String),
+    Ident(InternedStr),
     If,
     End,
     EqAssign,
@@ -123,7 +128,7 @@ pub struct Tokenizer<T>
 where
     T: Iterator<Item = PositionedChar>,
 {
-    iter: Peekable<T>,
+    iter: PeekableN<T, 1>,
 }
 
 impl<T> std::fmt::Debug for Tokenizer<T>
@@ -182,16 +187,22 @@ where
 {
     fn from(value: T) -> Self {
         Self {
-            iter: PositionedCharIterator::from(value).peekable(),
+            iter: PositionedCharIterator::from(value).peekable_n(),
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PositionedChar {
     line: u64,
     char: u64,
     c: char,
+}
+
+impl PartialEq<char> for PositionedChar {
+    fn eq(&self, other: &char) -> bool {
+        self.c == *other
+    }
 }
 
 impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
@@ -269,10 +280,18 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                     }
                 }
             }
-            '-' => Token {
-                tokentype: TokenType::Operator(Operator::Min),
-                span: c.into(),
-            },
+            '-' => {
+                if self.iter.peek().is_some_and(|e| *e == '-') {
+                    // comment
+                    while self.iter.next().is_some_and(|e| e != '\n') {}
+                    return self.next();
+                } else {
+                    Token {
+                        tokentype: TokenType::Operator(Operator::Min),
+                        span: c.into(),
+                    }
+                }
+            }
             '+' => Token {
                 tokentype: TokenType::Operator(Operator::Plus),
                 span: c.into(),
@@ -402,7 +421,7 @@ impl<T: Iterator<Item = PositionedChar>> Iterator for Tokenizer<T> {
                         "and" => TokenType::Operator(Operator::And),
                         "not" => TokenType::Operator(Operator::Not),
                         "then" => TokenType::Then,
-                        _ => TokenType::Ident(data),
+                        _ => TokenType::Ident(data.as_str().into()),
                     },
                     span: Span::from_positioned_chars(c, endchar),
                 }

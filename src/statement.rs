@@ -1,6 +1,8 @@
 use tracing::debug;
 
 use crate::luafn::LuaCodeFn;
+use crate::peekable_n::PeekableN;
+use crate::str_interner::InternedStr;
 use crate::Result;
 use crate::{
     error::LuaErrorType,
@@ -10,12 +12,11 @@ use crate::{
     value::Value,
     LuaError,
 };
-use std::iter::Peekable;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Assignment(String, Expr),
+    Assignment(InternedStr, Expr),
     Expr(Expr),
     Return(Expr),
     If {
@@ -78,7 +79,7 @@ impl Statement {
         }
     }
 
-    pub fn parse_until_end<T>(source: &mut Peekable<T>) -> Result<Vec<Statement>>
+    pub fn parse_until_end<T>(source: &mut PeekableN<T, 2>) -> Result<Vec<Statement>>
     where
         T: Iterator<Item = Token>,
     {
@@ -100,7 +101,7 @@ impl Statement {
     }
 
     /// does not consume newlines
-    pub fn parse<T>(source: &mut Peekable<T>) -> Result<Statement>
+    pub fn parse<T>(source: &mut PeekableN<T, 2>) -> Result<Statement>
     where
         T: Iterator<Item = Token>,
     {
@@ -118,7 +119,7 @@ impl Statement {
                     TokenType::EqAssign => {
                         let expr = Expr::parse(source)?;
 
-                        Ok(Statement::Assignment(name, expr))
+                        Ok(Statement::Assignment(name.into(), expr))
                     }
                     TokenType::LBrac(BraceType::Round) => {
                         if source

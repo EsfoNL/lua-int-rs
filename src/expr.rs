@@ -1,11 +1,13 @@
-use std::iter::Peekable;
+use std::sync::Arc;
 
 use tracing::debug;
 
 use crate::{
     error::LuaErrorType,
+    peekable_n::PeekableN,
     prog::LuaScopePair,
     statement::is_token_type,
+    str_interner::InternedStr,
     tokenizing::{BraceType, Operator, Span, Token, TokenType},
     value::Value,
     LuaError,
@@ -19,26 +21,26 @@ pub struct ExprElement {
 
 #[derive(Debug, Clone, PartialEq)]
 enum ExprElementType {
-    FnCall(String, Vec<Expr>),
-    VarAccess(String, Vec<Expr>),
+    FnCall(InternedStr, Vec<Expr>),
+    VarAccess(InternedStr, Vec<Expr>),
     Operator(Operator),
     Nested(Expr),
     Value(Value),
 }
 
 impl ExprElement {
-    fn function_call(name: String, args: Vec<Expr>, span: Span) -> Self {
-        Self {
+    fn function_call(name: impl Into<InternedStr>, args: Vec<Expr>, span: Span) -> Arc<Self> {
+        Arc::new(Self {
             span,
-            expr_element_type: ExprElementType::FnCall(name, args),
-        }
+            expr_element_type: ExprElementType::FnCall(name.into(), args),
+        })
     }
 
-    fn value(value: Value, span: Span) -> Self {
-        Self {
+    fn value(value: Value, span: Span) -> Arc<Self> {
+        Arc::new(Self {
             span,
             expr_element_type: ExprElementType::Value(value),
-        }
+        })
     }
 
     fn eval_value(&self, scopes: &mut LuaScopePair) -> Result<Value, LuaError> {
@@ -90,9 +92,9 @@ impl ExprElement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Expr(pub Vec<ExprElement>);
+pub struct Expr(pub Vec<Arc<ExprElement>>);
 impl Expr {
-    pub fn function_call(name: String, args: Vec<Expr>, span: Span) -> Self {
+    pub fn function_call(name: impl Into<InternedStr>, args: Vec<Expr>, span: Span) -> Self {
         Self(vec![ExprElement::function_call(name, args, span)])
     }
 
@@ -102,9 +104,9 @@ impl Expr {
 
     pub fn eval(&self, scopes: &mut LuaScopePair) -> Result<Value, LuaError> {
         let is_or =
-            |e: &ExprElement| e.expr_element_type == ExprElementType::Operator(Operator::Or);
+            |e: &Arc<ExprElement>| e.expr_element_type == ExprElementType::Operator(Operator::Or);
         let is_and =
-            |e: &ExprElement| e.expr_element_type == ExprElementType::Operator(Operator::And);
+            |e: &Arc<ExprElement>| e.expr_element_type == ExprElementType::Operator(Operator::And);
 
         if self.0.iter().any(is_or) {
             let mut lastval = Value::Nil;
@@ -165,11 +167,11 @@ impl Expr {
                         .eval_value(scopes)?
                         .num()
                         .ok_or(val.to_not_a_num())?;
-                    reducing_array[index - 1] = ExprElement {
+                    reducing_array[index - 1] = Arc::new(ExprElement {
                         span: reducing_array[index + 1].span.clone()
                             + &reducing_array[index - 1].span,
                         expr_element_type: ExprElementType::Value(Value::Num(val_a.powf(val_b))),
-                    }; // replace val_a with result
+                    }); // replace val_a with result
                     reducing_array.remove(index + 1); // remove old val_b
                     reducing_array.remove(index); // remove operator
                 }
@@ -189,10 +191,10 @@ impl Expr {
                         .ok_or(val.to_expected_value())?
                         .eval_value(scopes)?
                         .bool();
-                    reducing_array[index] = ExprElement {
+                    reducing_array[index] = Arc::new(ExprElement {
                         span: val.span.clone() + &reducing_array[index + 1].span,
                         expr_element_type: ExprElementType::Value(Value::Boolean(!val_b)),
-                    };
+                    });
                     reducing_array.remove(index + 1);
                 } else if val.expr_element_type == ExprElementType::Operator(Operator::Min) {
                     // check if the preceding element doesnt exist or its an operator
@@ -203,10 +205,10 @@ impl Expr {
                             .eval_value(scopes)?
                             .num()
                             .ok_or(val.to_not_a_num())?;
-                        reducing_array[index] = ExprElement {
+                        reducing_array[index] = Arc::new(ExprElement {
                             span: val.span.clone() + &reducing_array[index + 1].span,
                             expr_element_type: ExprElementType::Value(Value::Num(-val_b)),
-                        };
+                        });
                         reducing_array.remove(index + 1);
                     }
                 }
@@ -245,11 +247,11 @@ impl Expr {
                         val_a / val_b
                     };
 
-                    reducing_array[index - 1] = ExprElement {
+                    reducing_array[index - 1] = Arc::new(ExprElement {
                         span: reducing_array[index + 1].span.clone()
                             + &reducing_array[index - 1].span,
                         expr_element_type: ExprElementType::Value(Value::Num(res)),
-                    };
+                    });
                     reducing_array.remove(index + 1);
                     reducing_array.remove(index);
                 } else {
@@ -292,11 +294,11 @@ impl Expr {
                         val_a + val_b
                     };
 
-                    reducing_array[index - 1] = ExprElement {
+                    reducing_array[index - 1] = Arc::new(ExprElement {
                         span: reducing_array[index + 1].span.clone()
                             + &reducing_array[index - 1].span,
                         expr_element_type: ExprElementType::Value(Value::Num(res)),
-                    };
+                    });
                     reducing_array.remove(index + 1);
                     reducing_array.remove(index);
                 } else {
@@ -350,11 +352,11 @@ impl Expr {
                         _ => unreachable!(),
                     }?;
 
-                    reducing_array[index - 1] = ExprElement {
+                    reducing_array[index - 1] = Arc::new(ExprElement {
                         span: reducing_array[index + 1].span.clone()
                             + &reducing_array[index - 1].span,
                         expr_element_type: ExprElementType::Value(Value::Boolean(res)),
-                    };
+                    });
                     reducing_array.remove(index + 1);
                     reducing_array.remove(index);
                 } else {
@@ -379,7 +381,7 @@ impl Expr {
     /// ends parsing when it finds something that escapes scope without consuming it
     /// as such does not consume [TokenType::LineBreak] at the end of statemtent
     /// this is left to the caller
-    pub fn parse<T>(source: &mut Peekable<T>) -> Result<Expr, LuaError>
+    pub fn parse<T>(source: &mut PeekableN<T, 2>) -> Result<Expr, LuaError>
     where
         T: Iterator<Item = Token>,
     {
@@ -402,10 +404,10 @@ impl Expr {
                     };
 
                     let Some(next_val) = source.peek() else {
-                        expr_vec.push(ExprElement {
+                        expr_vec.push(Arc::new(ExprElement {
                             span: val.span,
                             expr_element_type: ExprElementType::VarAccess(ident_name, Vec::new()),
-                        });
+                        }));
                         continue;
                     };
                     match next_val.tokentype {
@@ -447,10 +449,10 @@ impl Expr {
                         TokenType::LBrac(BraceType::Square) => {
                             todo!()
                         }
-                        _ => expr_vec.push(ExprElement {
+                        _ => expr_vec.push(Arc::new(ExprElement {
                             span: val.span,
                             expr_element_type: ExprElementType::VarAccess(ident_name, Vec::new()),
-                        }),
+                        })),
                     }
                 }
                 TokenType::Value(_) => {
@@ -458,10 +460,10 @@ impl Expr {
                     let TokenType::Value(value) = val.tokentype else {
                         unreachable!()
                     };
-                    expr_vec.push(ExprElement {
+                    expr_vec.push(Arc::new(ExprElement {
                         span: val.span,
                         expr_element_type: ExprElementType::Value(value),
-                    })
+                    }))
                 }
                 TokenType::LBrac(_) => {
                     let val = source.next().unwrap();
@@ -482,10 +484,10 @@ impl Expr {
                     if val.tokentype != TokenType::RBrac(BraceType::Round) {
                         return Err(val.into_malformed());
                     }
-                    expr_vec.push(ExprElement {
+                    expr_vec.push(Arc::new(ExprElement {
                         span: val.span,
                         expr_element_type: ExprElementType::Nested(inner_expr),
-                    });
+                    }));
                 }
                 TokenType::RBrac(_) => {
                     break;
@@ -495,10 +497,10 @@ impl Expr {
                     let TokenType::Operator(op) = val.tokentype else {
                         unreachable!()
                     };
-                    expr_vec.push(ExprElement {
+                    expr_vec.push(Arc::new(ExprElement {
                         span: val.span,
                         expr_element_type: ExprElementType::Operator(op),
-                    })
+                    }))
                 }
                 TokenType::LineBreak | TokenType::Then | TokenType::Comma | TokenType::End => {
                     break;

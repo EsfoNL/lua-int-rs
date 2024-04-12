@@ -1,18 +1,19 @@
 use tracing::debug;
-use wasm_bindgen::prelude::*;
 
 use crate::{
     luafn::LuaFn,
+    peekable_n::{NPeekable, PeekableN},
     statement::Statement,
-    tokenizing::{Token, TokenType, Tokenizer},
+    str_interner::InternedStr,
+    tokenizing::{Token, TokenType},
     value::Value,
     Result,
 };
-use std::{collections::HashMap, iter::Peekable};
-use std::{fmt::Debug, sync::Arc};
+use std::fmt::Debug;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Default)]
-pub struct LuaScope(pub HashMap<String, Value>);
+pub struct LuaScope(pub HashMap<InternedStr, Value>);
 
 impl LuaScope {
     fn new() -> Self {
@@ -45,7 +46,7 @@ impl<'local, 'global> LuaScopePair<'local, 'global> {
 
 #[derive(Debug)]
 pub struct Prog<'scope, T: Iterator<Item = Token> + Debug> {
-    source: Peekable<T>,
+    source: PeekableN<T, 2>,
     global_scope: &'scope mut LuaScope,
     local_global_scope: LuaScope,
 }
@@ -62,16 +63,16 @@ impl<'scope, T> Prog<'scope, T>
 where
     T: Iterator<Item = Token> + Debug,
 {
-    pub fn register_function<F>(&mut self, name: String, f: F)
+    pub fn register_function<F>(&mut self, name: &str, f: F)
     where
         F: LuaFn + 'static,
     {
         self.global_scope
             .0
-            .insert(name, Value::Function(Arc::new(f)));
+            .insert(name.into(), Value::Function(Arc::new(f)));
     }
-    pub fn register_arc_function(&mut self, name: String, f: Arc<dyn LuaFn>) {
-        self.global_scope.0.insert(name, Value::Function(f));
+    pub fn register_arc_function(&mut self, name: &str, f: Arc<dyn LuaFn>) {
+        self.global_scope.0.insert(name.into(), Value::Function(f));
     }
 
     pub fn set_global_scope(&mut self, scope: &'scope mut LuaScope) {
@@ -100,7 +101,7 @@ where
 
     pub fn new(iter: T, scope: &'scope mut LuaScope) -> Self {
         Self {
-            source: iter.peekable(),
+            source: iter.peekable_n(),
             global_scope: scope,
             local_global_scope: LuaScope::default(),
         }

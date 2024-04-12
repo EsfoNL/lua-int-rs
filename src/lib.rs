@@ -7,8 +7,10 @@ pub mod expr;
 pub mod luafn;
 pub mod prog;
 pub mod statement;
+pub mod str_interner;
 pub mod tokenizing;
 pub mod value;
 
+pub mod peekable_n;
 pub mod wasm_bindgen;
 pub use wasm_bindgen::*;

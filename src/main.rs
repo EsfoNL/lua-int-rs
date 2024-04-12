@@ -43,10 +43,10 @@ fn main() {
         if args.len() != 1 {
             return Err(LuaError::new_without_span(LuaErrorType::WrongArgumentCount));
         };
-        println!("{:?}", args[0]);
+        println!("{}", args[0]);
         Ok(Value::Nil)
     };
-    p.register_function("print".to_owned(), clos);
+    p.register_function(&"print", clos);
     match p.run() {
         Ok(_) => (),
         Err(e) => error!(
